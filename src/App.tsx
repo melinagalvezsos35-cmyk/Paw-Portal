@@ -10,6 +10,7 @@ export function App() {
   const [currentPage, setCurrentPage] = useState<PageView>('login');
 
   const handleLogout = () => {
+    localStorage.removeItem('paw_user');
     setCurrentPage('login');
   };
 
@@ -21,9 +22,10 @@ export function App() {
     <div>
       <Navbar
         currentPage={currentPage}
-        onNavigate={(page) => setCurrentPage(page)}
+        onNavigate={setCurrentPage}
         onLogout={handleLogout}
       />
+
       {currentPage === 'citas' && <CitasPage />}
       {currentPage === 'ventas' && <VentasPage />}
       {currentPage === 'inventario' && <InventarioPage />}

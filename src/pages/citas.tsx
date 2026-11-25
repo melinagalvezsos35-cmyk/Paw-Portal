@@ -1,43 +1,56 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import {
+  Search,
+  CalendarPlus,
+  CheckCircle2,
+  Clock,
+  PawPrint,
+  User,
+  Phone,
+  Stethoscope,
+  CreditCard,
+  IdCard,
+  Calendar,
+} from 'lucide-react';
 import type { Appointment } from '../types';
 
-const initialAppointments: Appointment[] = [
-  {
-    id: '1',
-    petName: 'Max',
-    ownerName: 'Laura Pérez',
-    phone1: '9981234567',
-    phone2: '9987654321',
-    ineVerified: true,
-    serviceType: 'Consulta General',
-    assignedEmployee: 'Dr. Roberto Gómez',
-    isPaid: true,
-    date: '2026-10-26',
-    time: '10:00 AM',
-    status: 'confirmada',
-  },
-  {
-    id: '2',
-    petName: 'Luna',
-    ownerName: 'Carlos Ruiz',
-    phone1: '9981112233',
-    phone2: '9982223344',
-    ineVerified: false,
-    serviceType: 'Vacunación',
-    assignedEmployee: 'Dra. Ana Martínez',
-    isPaid: false,
-    date: '2026-10-26',
-    time: '11:30 AM',
-    status: 'por_confirmar',
-  },
-];
-
 export const CitasPage: React.FC = () => {
-  const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [selectedDate, setSelectedDate] = useState('2026-10-26');
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedApp, setSelectedApp] = useState<Partial<Appointment> | null>(null);
+
+  // 1. Cargar citas desde MySQL
+  const fetchAppointments = async () => {
+    try {
+      const response = await fetch('http://localhost:3000/api/citas');
+      if (response.ok) {
+        const data = await response.json();
+        const mappedAppointments: Appointment[] = data.map((row: any) => ({
+          id: row.id.toString(),
+          petName: row.mascota,
+          ownerName: row.responsable,
+          phone1: row.telefono_principal,
+          phone2: row.telefono_secundario || '',
+          ineVerified: Boolean(row.dejo_ine),
+          serviceType: row.servicio,
+          assignedEmployee: row.empleado_asignado,
+          isPaid: Boolean(row.servicio_pagado),
+          date: row.fecha ? row.fecha.split('T')[0] : '',
+          time: row.hora,
+          status: row.estado,
+        }));
+        setAppointments(mappedAppointments);
+      }
+    } catch (error) {
+      console.error('Error al cargar citas:', error);
+    }
+  };
+
+  useEffect(() => {
+    fetchAppointments();
+  }, []);
 
   const searchedAppointments = appointments.filter(
     (app) =>
@@ -49,7 +62,7 @@ export const CitasPage: React.FC = () => {
   const dayApps = searchedAppointments.filter(
     (app) => app.date === selectedDate && app.status === 'confirmada'
   );
-  
+
   const pendingApps = searchedAppointments.filter(
     (app) => app.status === 'por_confirmar'
   );
@@ -75,104 +88,246 @@ export const CitasPage: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  // 2. Guardar nueva cita (POST) o actualizar existente (PUT) en MySQL
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedApp) return;
 
-    if (selectedApp.id) {
-      setAppointments((prev) =>
-        prev.map((a) => (a.id === selectedApp.id ? (selectedApp as Appointment) : a))
-      );
-    } else {
-      const newApp = { ...(selectedApp as Appointment), id: Date.now().toString() };
-      setAppointments((prev) => [...prev, newApp]);
+    const payload = {
+      mascota: selectedApp.petName,
+      responsable: selectedApp.ownerName,
+      telefono_principal: selectedApp.phone1,
+      telefono_secundario: selectedApp.phone2,
+      fecha: selectedApp.date,
+      hora: selectedApp.time,
+      servicio: selectedApp.serviceType || 'Consulta General',
+      empleado_asignado: selectedApp.assignedEmployee,
+      dejo_ine: selectedApp.ineVerified,
+      servicio_pagado: selectedApp.isPaid,
+      estado: selectedApp.status || 'confirmada',
+    };
+
+    try {
+      if (selectedApp.id) {
+        const response = await fetch(`http://localhost:3000/api/citas/${selectedApp.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (response.ok) fetchAppointments();
+      } else {
+        const response = await fetch('http://localhost:3000/api/citas', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (response.ok) fetchAppointments();
+      }
+      setIsModalOpen(false);
+    } catch (error) {
+      console.error('Error al guardar:', error);
+      alert('No se pudo guardar la cita en el servidor.');
     }
-    setIsModalOpen(false);
+  };
+
+  // 3. Botón de "Confirmar Cita" en la columna derecha
+  const handleConfirmAppointment = async (app: Appointment) => {
+    const payload = {
+      mascota: app.petName,
+      responsable: app.ownerName,
+      telefono_principal: app.phone1,
+      telefono_secundario: app.phone2,
+      fecha: app.date,
+      hora: app.time,
+      servicio: app.serviceType,
+      empleado_asignado: app.assignedEmployee,
+      dejo_ine: app.ineVerified,
+      servicio_pagado: app.isPaid,
+      estado: 'confirmada',
+    };
+
+    try {
+      const response = await fetch(`http://localhost:3000/api/citas/${app.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (response.ok) fetchAppointments();
+    } catch (error) {
+      console.error('Error al confirmar cita:', error);
+    }
   };
 
   return (
     <main className="page-container">
       <header className="page-header">
-        
         <div style={{ display: 'flex', gap: '1rem', width: '100%', maxWidth: '650px', justifyContent: 'center', flexWrap: 'wrap' }}>
-          <input
-            type="search"
-            className="search-input"
-            placeholder="Buscar en todas las citas (paciente, dueño...)"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            style={{ flex: 1, minWidth: '260px' }}
-          />
+          <div style={{ position: 'relative', flex: 1, minWidth: '260px' }}>
+            <Search
+              size={18}
+              style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }}
+            />
+            <input
+              type="search"
+              className="search-input"
+              placeholder="Buscar en todas las citas (paciente, dueño...)"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              style={{ width: '100%', boxSizing: 'border-box', paddingLeft: '2.5rem' }}
+            />
+          </div>
+
           <input
             type="date"
             className="search-input"
             value={selectedDate}
             onChange={(e) => setSelectedDate(e.target.value)}
-            style={{ width: '160px' }}
+            style={{ width: '165px' }}
             title="Filtrar citas del día"
           />
         </div>
       </header>
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
-        <button className="btn-primary" onClick={() => handleOpenModal()}>+ Registrar Nueva Cita</button>
+        <button className="btn-primary" onClick={() => handleOpenModal()}>
+          <CalendarPlus size={18} />
+          Registrar Nueva Cita
+        </button>
       </div>
 
       <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '1.5rem' }}>
-        
+        {/* COLUMNA IZQUIERDA: CITAS CONFIRMADAS */}
         <article className="column-card" style={{ minHeight: '400px' }}>
-          <h2>Citas Confirmadas ({selectedDate})</h2>
+          <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <CheckCircle2 size={21} color="var(--primary, #0d7a68)" />
+            Citas Confirmadas ({selectedDate})
+          </h2>
+
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', overflowY: 'auto', flex: 1 }}>
             {dayApps.length === 0 ? (
-              <p style={{ color: '#64748b', textAlign: 'center', marginTop: '2rem' }}>No hay citas confirmadas para esta fecha.</p>
+              <p style={{ color: '#64748b', textAlign: 'center', marginTop: '2rem' }}>
+                No hay citas confirmadas para esta fecha.
+              </p>
             ) : (
               dayApps.map((app) => (
                 <div
                   key={app.id}
-                  style={{ padding: '0.9rem', border: '1px solid var(--border)', borderRadius: '8px', cursor: 'pointer', background: '#effaf8' }}
+                  style={{
+                    padding: '0.95rem',
+                    border: '1px solid var(--border)',
+                    borderRadius: '10px',
+                    cursor: 'pointer',
+                    background: '#effaf8',
+                    transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+                  }}
                   onClick={() => handleOpenModal(app)}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
-                    <span>{app.petName}</span>
-                    <span style={{ color: 'var(--primary)' }}>{app.time}</span>
-                  </div>
-                  <p style={{ margin: '0.2rem 0', fontSize: '0.9rem' }}><strong>Responsable:</strong> {app.ownerName}</p>
-                  <p style={{ margin: '0.2rem 0', fontSize: '0.85rem' }}><strong>Servicio:</strong> {app.serviceType} ({app.assignedEmployee})</p>
-                  <p style={{ margin: '0.2rem 0', fontSize: '0.85rem' }}>
-                    <strong>Pago:</strong>{' '}
-                    <span style={{ color: app.isPaid ? '#166534' : 'var(--accent-strong)', fontWeight: 'bold' }}>
-                      {app.isPaid ? 'Pagado' : 'Pendiente'}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 'bold', marginBottom: '0.35rem' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '1rem', color: '#0f172a' }}>
+                      <PawPrint size={16} color="var(--primary, #0d7a68)" />
+                      {app.petName}
                     </span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', color: 'var(--primary)', fontSize: '0.9rem' }}>
+                      <Clock size={14} />
+                      {app.time}
+                    </span>
+                  </div>
+
+                  <p style={{ margin: '0.25rem 0', fontSize: '0.88rem', display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#334155' }}>
+                    <User size={14} color="#64748b" />
+                    <strong>Responsable:</strong> {app.ownerName}
                   </p>
+
+                  <p style={{ margin: '0.25rem 0', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#334155' }}>
+                    <Stethoscope size={14} color="#64748b" />
+                    <strong>Servicio:</strong> {app.serviceType} ({app.assignedEmployee})
+                  </p>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.45rem', paddingTop: '0.4rem', borderTop: '1px solid rgba(13, 122, 104, 0.12)' }}>
+                    <span style={{ fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                      <CreditCard size={14} color="#64748b" />
+                      <strong>Pago:</strong>{' '}
+                      <span style={{ color: app.isPaid ? '#166534' : 'var(--accent-strong)', fontWeight: 'bold' }}>
+                        {app.isPaid ? 'Pagado' : 'Pendiente'}
+                      </span>
+                    </span>
+
+                    {app.ineVerified && (
+                      <span
+                        title="Identificación verificada"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.25rem',
+                          fontSize: '0.72rem',
+                          background: '#dff5ef',
+                          color: '#0d7a68',
+                          padding: '0.15rem 0.5rem',
+                          borderRadius: '999px',
+                          fontWeight: 700,
+                        }}
+                      >
+                        <IdCard size={12} />
+                        INE OK
+                      </span>
+                    )}
+                  </div>
                 </div>
               ))
             )}
           </div>
         </article>
 
+        {/* COLUMNA DERECHA: SOLICITUDES POR CONFIRMAR */}
         <article className="column-card" style={{ minHeight: '400px' }}>
-          <h2>Solicitudes Por Confirmar</h2>
+          <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Clock size={21} color="var(--accent-strong, #b45309)" />
+            Solicitudes Por Confirmar
+          </h2>
+
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', overflowY: 'auto', flex: 1 }}>
             {pendingApps.length === 0 ? (
-              <p style={{ color: '#64748b', textAlign: 'center', marginTop: '2rem' }}>No hay citas pendientes por confirmar.</p>
+              <p style={{ color: '#64748b', textAlign: 'center', marginTop: '2rem' }}>
+                No hay citas pendientes por confirmar.
+              </p>
             ) : (
               pendingApps.map((app) => (
-                <div key={app.id} style={{ padding: '0.9rem', border: '1px solid var(--accent)', borderRadius: '8px', background: 'var(--accent-soft)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
-                    <span>{app.petName}</span>
-                    <span style={{ color: 'var(--accent-strong)', fontSize: '0.85rem' }}>Fecha: {app.date}</span>
+                <div
+                  key={app.id}
+                  style={{
+                    padding: '0.95rem',
+                    border: '1px solid var(--accent)',
+                    borderRadius: '10px',
+                    background: 'var(--accent-soft)',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 'bold', marginBottom: '0.35rem' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '1rem', color: '#0f172a' }}>
+                      <PawPrint size={16} color="var(--accent-strong, #b45309)" />
+                      {app.petName}
+                    </span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', color: 'var(--accent-strong)', fontSize: '0.84rem' }}>
+                      <Calendar size={14} />
+                      {app.date}
+                    </span>
                   </div>
-                  <p style={{ margin: '0.2rem 0', fontSize: '0.9rem' }}><strong>Responsable:</strong> {app.ownerName}</p>
-                  <p style={{ margin: '0.2rem 0', fontSize: '0.85rem' }}><strong>Teléfono:</strong> {app.phone1}</p>
+
+                  <p style={{ margin: '0.25rem 0', fontSize: '0.88rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <User size={14} color="#64748b" />
+                    <strong>Responsable:</strong> {app.ownerName}
+                  </p>
+
+                  <p style={{ margin: '0.25rem 0', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <Phone size={14} color="#64748b" />
+                    <strong>Teléfono:</strong> {app.phone1}
+                  </p>
+
                   <button
                     className="btn-primary"
-                    style={{ marginTop: '0.5rem', width: '100%' }}
-                    onClick={() =>
-                      setAppointments((prev) =>
-                        prev.map((a) => (a.id === app.id ? { ...a, status: 'confirmada' } : a))
-                      )
-                    }
+                    style={{ marginTop: '0.6rem', width: '100%' }}
+                    onClick={() => handleConfirmAppointment(app)}
                   >
+                    <CheckCircle2 size={16} />
                     Confirmar Cita
                   </button>
                 </div>
@@ -180,15 +335,17 @@ export const CitasPage: React.FC = () => {
             )}
           </div>
         </article>
-
       </section>
 
       {isModalOpen && selectedApp && (
         <div className="modal-overlay">
           <div className="modal-content">
-            <h2>{selectedApp.id ? 'Detalles de la Cita' : 'Registrar Nueva Cita'}</h2>
+            <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: 0 }}>
+              <CalendarPlus size={22} color="var(--primary, #0d7a68)" />
+              {selectedApp.id ? 'Detalles de la Cita' : 'Registrar Nueva Cita'}
+            </h2>
+
             <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-              
               <div>
                 <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Nombre del Paciente (Mascota) *</label>
                 <input
@@ -281,7 +438,32 @@ export const CitasPage: React.FC = () => {
                 </select>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', background: '#effaf8', padding: '0.8rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
+              <div>
+                <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Estado de la Cita *</label>
+                <select
+                  className="search-input"
+                  style={{ width: '100%', boxSizing: 'border-box' }}
+                  value={selectedApp.status || 'confirmada'}
+                  onChange={(e) =>
+                    setSelectedApp({ ...selectedApp, status: e.target.value as 'confirmada' | 'por_confirmar' })
+                  }
+                >
+                  <option value="confirmada">Confirmada</option>
+                  <option value="por_confirmar">Por Confirmar (Solicitud pendiente)</option>
+                </select>
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.5rem',
+                  background: '#effaf8',
+                  padding: '0.8rem',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border)',
+                }}
+              >
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem' }}>
                   <input
                     type="checkbox"
@@ -302,8 +484,12 @@ export const CitasPage: React.FC = () => {
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1rem' }}>
-                <button type="button" className="btn-secondary" onClick={() => setIsModalOpen(false)}>Cancelar</button>
-                <button type="submit" className="btn-primary">Guardar Cita</button>
+                <button type="button" className="btn-secondary" onClick={() => setIsModalOpen(false)}>
+                  Cancelar
+                </button>
+                <button type="submit" className="btn-primary">
+                  Guardar Cita
+                </button>
               </div>
             </form>
           </div>
